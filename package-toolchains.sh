@@ -80,6 +80,7 @@ while (( $# > 0 )) ; do
     [ "$ARG" = "archive" ] && DO_ARCHIVE=true && continue
     [ "$ARG" = "--cleanup" ] && CLEANUP_ARG="$ARG" && continue
     [ "$ARG" = "--no-cleanup" ] && CLEANUP_ARG="$ARG" && continue
+    [ "$ARG" = ":all" ] && TOOLCHAIN="$ARG" && continue
     TOOLCHAIN+=" $ARG"
 done
 
