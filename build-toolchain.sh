@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eu
 
 THIS_SCRIPT="$([ -L "$0" ] && readlink -f "$0" || echo "$0")"
 SCRIPT_DIR="$(cd "$(dirname "$THIS_SCRIPT")" ; pwd -P)"
@@ -21,7 +21,8 @@ show_help()
       --cleanup               Remove temporary files after building
       --no-cleanup            Do not remove temporary files after building
       --force                 Force reinstall of target
-      --toolchain-root        Overwrite default toolchain directory '$TOOLCHAINS_DIR'
+      --toolchain-root        Override default toolchain directory '$TOOLCHAINS_DIR'
+      --prefix <prefix>       Override the toolchain install prefix
 
    Tool:
 
@@ -33,8 +34,8 @@ show_help()
       # Install build dependencies; requires sudo or root
       > $(basename $0) --install-dependencies
 
-      # Install gcc version 13.1.0 to $TOOLCHAINS_DIR
-      > $(basename $0) gcc-13.1.0
+      # Install gcc version 13.2.0 to $TOOLCHAINS_DIR
+      > $(basename $0) gcc-13.2.0
 
       # Install llvm version 16.0.2 to $TOOLCHAINS_DIR
       > $(basename $0) llvm-16.0.2
@@ -154,7 +155,7 @@ build_llvm()
     local LLVM_DIR="llvm"
 
     # First ensure we have a recent cmake
-    if [ ! -x "$CMAKE" ] || [ "$FORCE" = "True" ] ; then
+    if [ ! -x "$CMAKE" ] ; then
         build_cmake v3.25.1
     fi
     
@@ -171,13 +172,16 @@ build_llvm()
         git clone https://github.com/llvm/llvm-project.git
     fi
     cd llvm-project
-    git checkout main
-    git pull origin main
+    git fetch --all
+    git clean -f -d
+    # git checkout main
+    # git pull origin main
+    git reset --hard "llvmorg-${VERSION}"
     git checkout "llvmorg-${VERSION}"
 
     local EXTRA_LLVM_DEFINES=""
     local LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld"
-    local LLVM_ENABLE_RUNTIMES_ARG="-D LLVM_ENABLE_RUNTIMES=compiler-rt;libc;libcxx;libcxxabi;libunwind"
+    local LLVM_ENABLE_RUNTIMES_ARG="-D LLVM_ENABLE_RUNTIMES=compiler-rt;libcxx;libcxxabi;libunwind"
     local MAJOR_VERSION="$(echo "$VERSION" | awk -F. '{ print $1 }')"
     if (( $MAJOR_VERSION <= 12 )) ; then
         LLVM_ENABLE_PROJECTS="$LLVM_ENABLE_PROJECTS;compiler-rt;libcxx;libcxxabi;libunwind"
@@ -196,7 +200,7 @@ build_llvm()
          -D LIBCXX_ENABLE_SHARED=Yes \
          -D LIBCXX_ENABLE_STATIC=Yes \
          -D LLVM_BUILD_LLVM_DYLIB=Yes \
-         -D LLVM_TARGETS_TO_BUILD="X86;BPF;AArch64;ARM;WebAssembly" \
+         -D LLVM_TARGETS_TO_BUILD="X86;BPF" \
          -D CMAKE_INSTALL_PREFIX:PATH="$INSTALL_PREFIX" \
          $SRC_D/llvm-project/llvm
 
@@ -212,7 +216,7 @@ build_gcc()
     local VERSION="$2"
     
     local MAJOR_VERSION="$(echo "$VERSION" | sed 's,\..*$,,')"
-    local SRCD="$TMPD/$SUFFIX"
+    local SRCD="$TMPD"
     
     mkdir -p "$SRCD"
     cd "$SRCD"
@@ -261,6 +265,7 @@ FORCE_INSTALL="False"
 INSTALL_DEPS="False"
 TMPD=""
 COMPILER=""
+INSTALL_PREFIX=
 
 while (( $# > 0 )) ; do
     ARG="$1"
@@ -270,6 +275,7 @@ while (( $# > 0 )) ; do
     [ "$ARG" = "--force" ] || [ "$ARG" = "-f" ] && export FORCE_INSTALL="True" && continue
     [ "$ARG" = "--install-dependencies" ] && INSTALL_DEPS = "True" && continue
     [ "$ARG" = "--toolchain-root" ] && export TOOLCHAINS_DIR="$1" && shift && continue
+    [ "$ARG" = "--prefix" ]         && INSTALL_PREFIX="$1" && shift && continue
     
     if [ "${ARG:0:3}" = "gcc" ] ; then
         COMPILER="gcc"
@@ -316,7 +322,9 @@ cleanup()
 }
 
 # ----------------------------------------------------------------------- action
-INSTALL_PREFIX="${TOOLCHAINS_DIR}/${COMPILER}-${VERSION}--${MACHINE}--${VENDOR_TAG}--${PLATFORM}"
+if [ "$INSTALL_PREFIX" = "" ] ; then
+    INSTALL_PREFIX="${TOOLCHAINS_DIR}/${COMPILER}-${VERSION}--${MACHINE}--${VENDOR_TAG}--${PLATFORM}"
+fi
 if [ "$FORCE_INSTALL" = "True" ] || [ ! -x "$INSTALL_PREFIX/bin/$EXEC" ] ; then
     ensure_directory "$TOOLCHAINS_DIR"
     build_$COMPILER "$INSTALL_PREFIX" $VERSION
